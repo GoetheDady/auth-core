@@ -283,15 +283,15 @@ async function startServer(): Promise<void> {
       logger.success(`
 ╔═════════════════════════════════════════════════════════════════════╗
 ║                                                                     ║
-║         🔐 AuthCore 认证中心已启动                                     ║
+║         🔐 AuthCore 认证中心已启动                                  ║
 ║                                                                     ║
-║         环境: ${config.server.env.padEnd(45)}                        ║
-║         端口: ${PORT.toString().padEnd(45)}                          ║
-║         地址: http://localhost:${PORT.toString().padEnd(33)}         ║
+║         环境: ${config.server.env.padEnd(54)}║
+║         端口: ${PORT.toString().padEnd(54)}║
+║         地址: http://localhost:${PORT}${' '.repeat(69 - 32 - PORT.toString().length)}║
 ║                                                                     ║
-║         📖 API 文档: http://localhost:${PORT}/api-docs               ║
-║         ❤️  健康检查: http://localhost:${PORT}/api/health            ║
-║         🔑 公钥获取: http://localhost:${PORT}/api/auth/public-key    ║
+║         📖 API 文档: http://localhost:${PORT}/api-docs${' '.repeat(69 - 48 - PORT.toString().length)}║
+║         ❤️  健康检查: http://localhost:${PORT}/api/health${' '.repeat(69 - 50 - PORT.toString().length)}║
+║         🔑 公钥获取: http://localhost:${PORT}/api/auth/public-key${' '.repeat(69 - 59 - PORT.toString().length)}║
 ║                                                                     ║
 ╚═════════════════════════════════════════════════════════════════════╝
       `);
