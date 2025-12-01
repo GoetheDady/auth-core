@@ -1,19 +1,63 @@
-const User = require('../models/User');
-const tokenService = require('./tokenService');
-const emailService = require('./emailService');
-const logger = require('../utils/logger');
+import User from '../models/User';
+import * as tokenService from './tokenService';
+import * as emailService from './emailService';
+import logger from '../utils/logger';
 
 /**
  * 认证服务
  * 处理用户注册、登录、验证等业务逻辑
  */
 
+interface RegisterData {
+  email: string;
+  username: string;
+  password: string;
+}
+
+interface RegisterResult {
+  success: boolean;
+  message: string;
+  userId: any;
+}
+
+interface VerifyEmailResult {
+  success: boolean;
+  message: string;
+  user: {
+    email: string;
+    username: string;
+  };
+}
+
+interface LoginResult {
+  success: boolean;
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+  user: {
+    id: any;
+    email: string;
+    username: string;
+  };
+}
+
+interface RefreshTokenResult {
+  success: boolean;
+  accessToken: string;
+  expiresIn: number;
+}
+
+interface LogoutResult {
+  success: boolean;
+  message: string;
+}
+
 /**
  * 用户注册
- * @param {Object} userData - { email, username, password }
- * @returns {Promise<Object>}
+ * @param userData - { email, username, password }
+ * @returns 注册结果
  */
-async function register(userData) {
+export async function register(userData: RegisterData): Promise<RegisterResult> {
   const { email, username, password } = userData;
   
   try {
@@ -44,7 +88,7 @@ async function register(userData) {
         user.username,
         user.verificationToken
       );
-    } catch (emailError) {
+    } catch (emailError: any) {
       logger.error('发送验证邮件失败，但用户已创建:', emailError.message);
       // 即使邮件发送失败，也不影响注册成功
     }
@@ -56,7 +100,7 @@ async function register(userData) {
       message: '注册成功，请查收验证邮件',
       userId: user._id
     };
-  } catch (error) {
+  } catch (error: any) {
     logger.error('用户注册失败:', error.message);
     throw error;
   }
@@ -64,10 +108,10 @@ async function register(userData) {
 
 /**
  * 验证邮箱
- * @param {string} token - 验证令牌
- * @returns {Promise<Object>}
+ * @param token - 验证令牌
+ * @returns 验证结果
  */
-async function verifyEmail(token) {
+export async function verifyEmail(token: string): Promise<VerifyEmailResult> {
   try {
     const user = await User.findOne({
       verificationToken: token,
@@ -94,7 +138,7 @@ async function verifyEmail(token) {
         username: user.username
       }
     };
-  } catch (error) {
+  } catch (error: any) {
     logger.error('邮箱验证失败:', error.message);
     throw error;
   }
@@ -102,10 +146,10 @@ async function verifyEmail(token) {
 
 /**
  * 重新发送验证邮件
- * @param {string} email - 邮箱地址
- * @returns {Promise<Object>}
+ * @param email - 邮箱地址
+ * @returns 操作结果
  */
-async function resendVerificationEmail(email) {
+export async function resendVerificationEmail(email: string): Promise<{ success: boolean; message: string }> {
   try {
     const user = await User.findOne({ email: email.toLowerCase() });
     
@@ -135,7 +179,7 @@ async function resendVerificationEmail(email) {
       success: true,
       message: '验证邮件已重新发送'
     };
-  } catch (error) {
+  } catch (error: any) {
     logger.error('重发验证邮件失败:', error.message);
     throw error;
   }
@@ -143,11 +187,11 @@ async function resendVerificationEmail(email) {
 
 /**
  * 用户登录
- * @param {string} account - 账号（邮箱或用户名）
- * @param {string} password - 密码
- * @returns {Promise<Object>}
+ * @param account - 账号（邮箱或用户名）
+ * @param password - 密码
+ * @returns 登录结果
  */
-async function login(account, password) {
+export async function login(account: string, password: string): Promise<LoginResult> {
   try {
     // 1. 查找用户
     const user = await User.findByAccount(account);
@@ -191,7 +235,7 @@ async function login(account, password) {
         username: user.username
       }
     };
-  } catch (error) {
+  } catch (error: any) {
     logger.error('用户登录失败:', error.message);
     throw error;
   }
@@ -199,10 +243,10 @@ async function login(account, password) {
 
 /**
  * 刷新 Access Token
- * @param {string} refreshToken - Refresh Token
- * @returns {Promise<Object>}
+ * @param refreshToken - Refresh Token
+ * @returns 刷新结果
  */
-async function refreshAccessToken(refreshToken) {
+export async function refreshAccessToken(refreshToken: string): Promise<RefreshTokenResult> {
   try {
     // 1. 查找包含此 Refresh Token 的用户
     const user = await User.findOne({
@@ -234,7 +278,7 @@ async function refreshAccessToken(refreshToken) {
       accessToken,
       expiresIn: 900
     };
-  } catch (error) {
+  } catch (error: any) {
     logger.error('刷新 Token 失败:', error.message);
     throw error;
   }
@@ -242,11 +286,11 @@ async function refreshAccessToken(refreshToken) {
 
 /**
  * 用户登出
- * @param {string} refreshToken - Refresh Token（可选）
- * @param {string} userId - 用户 ID（可选）
- * @returns {Promise<Object>}
+ * @param refreshToken - Refresh Token（可选）
+ * @param userId - 用户 ID（可选）
+ * @returns 登出结果
  */
-async function logout(refreshToken, userId) {
+export async function logout(refreshToken?: string, userId?: string): Promise<LogoutResult> {
   try {
     if (refreshToken) {
       // 移除指定的 Refresh Token
@@ -270,18 +314,9 @@ async function logout(refreshToken, userId) {
       success: true,
       message: '登出成功'
     };
-  } catch (error) {
+  } catch (error: any) {
     logger.error('登出失败:', error.message);
     throw error;
   }
 }
-
-module.exports = {
-  register,
-  verifyEmail,
-  resendVerificationEmail,
-  login,
-  refreshAccessToken,
-  logout
-};
 

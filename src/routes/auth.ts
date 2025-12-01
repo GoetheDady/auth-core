@@ -1,13 +1,14 @@
-const express = require('express');
-const router = express.Router();
-const authService = require('../services/authService');
-const config = require('../config');
-const {
+import express, { Request, Response, NextFunction, Router } from 'express';
+import * as authService from '../services/authService';
+import config from '../config';
+import {
   validateRegister,
   validateLogin,
   validateRefreshToken,
   validateEmail
-} = require('../middlewares/validator');
+} from '../middlewares/validator';
+
+const router: Router = express.Router();
 
 /**
  * @swagger
@@ -42,7 +43,7 @@ const {
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.post('/register', validateRegister, async (req, res, next) => {
+router.post('/register', validateRegister, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { email, username, password } = req.body;
     const result = await authService.register({ email, username, password });
@@ -80,12 +81,12 @@ router.post('/register', validateRegister, async (req, res, next) => {
  *             schema:
  *               type: string
  */
-router.get('/verify', async (req, res, next) => {
+router.get('/verify', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { token } = req.query;
     
-    if (!token) {
-      return res.status(400).send(`
+    if (!token || typeof token !== 'string') {
+      res.status(400).send(`
         <!DOCTYPE html>
         <html>
         <head>
@@ -102,6 +103,7 @@ router.get('/verify', async (req, res, next) => {
         </body>
         </html>
       `);
+      return;
     }
     
     const result = await authService.verifyEmail(token);
@@ -143,7 +145,7 @@ router.get('/verify', async (req, res, next) => {
       </body>
       </html>
     `);
-  } catch (error) {
+  } catch (error: any) {
     res.status(400).send(`
       <!DOCTYPE html>
       <html>
@@ -197,7 +199,7 @@ router.get('/verify', async (req, res, next) => {
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.post('/resend-verification', validateEmail, async (req, res, next) => {
+router.post('/resend-verification', validateEmail, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { email } = req.body;
     const result = await authService.resendVerificationEmail(email);
@@ -246,7 +248,7 @@ router.post('/resend-verification', validateEmail, async (req, res, next) => {
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.post('/login', validateLogin, async (req, res, next) => {
+router.post('/login', validateLogin, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { account, password } = req.body;
     const result = await authService.login(account, password);
@@ -283,7 +285,7 @@ router.post('/login', validateLogin, async (req, res, next) => {
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.post('/refresh', validateRefreshToken, async (req, res, next) => {
+router.post('/refresh', validateRefreshToken, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { refreshToken } = req.body;
     const result = await authService.refreshAccessToken(refreshToken);
@@ -319,7 +321,7 @@ router.post('/refresh', validateRefreshToken, async (req, res, next) => {
  *             schema:
  *               $ref: '#/components/schemas/SuccessResponse'
  */
-router.post('/logout', async (req, res, next) => {
+router.post('/logout', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { refreshToken } = req.body;
     const result = await authService.logout(refreshToken);
@@ -348,10 +350,10 @@ router.post('/logout', async (req, res, next) => {
  *                 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...
  *                 -----END PUBLIC KEY-----
  */
-router.get('/public-key', (req, res) => {
+router.get('/public-key', (req: Request, res: Response) => {
   res.set('Content-Type', 'text/plain');
   res.send(config.jwt.publicKey);
 });
 
-module.exports = router;
+export default router;
 

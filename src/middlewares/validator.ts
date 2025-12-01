@@ -1,4 +1,5 @@
-const { body, validationResult } = require('express-validator');
+import { body, validationResult } from 'express-validator';
+import { Request, Response, NextFunction } from 'express';
 
 /**
  * 请求验证中间件
@@ -8,17 +9,18 @@ const { body, validationResult } = require('express-validator');
 /**
  * 处理验证结果
  */
-const handleValidationErrors = (req, res, next) => {
+const handleValidationErrors = (req: Request, res: Response, next: NextFunction): void => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(400).json({
+    res.status(400).json({
       success: false,
       message: '请求参数验证失败',
       errors: errors.array().map(err => ({
-        field: err.path,
+        field: 'path' in err ? err.path : 'unknown',
         message: err.msg
       }))
     });
+    return;
   }
   next();
 };
@@ -26,7 +28,7 @@ const handleValidationErrors = (req, res, next) => {
 /**
  * 注册验证规则
  */
-const validateRegister = [
+export const validateRegister = [
   body('email')
     .isEmail()
     .withMessage('邮箱格式不正确')
@@ -51,7 +53,7 @@ const validateRegister = [
 /**
  * 登录验证规则
  */
-const validateLogin = [
+export const validateLogin = [
   body('account')
     .trim()
     .notEmpty()
@@ -67,7 +69,7 @@ const validateLogin = [
 /**
  * 刷新 Token 验证规则
  */
-const validateRefreshToken = [
+export const validateRefreshToken = [
   body('refreshToken')
     .notEmpty()
     .withMessage('Refresh Token 不能为空'),
@@ -78,7 +80,7 @@ const validateRefreshToken = [
 /**
  * 邮箱验证规则
  */
-const validateEmail = [
+export const validateEmail = [
   body('email')
     .isEmail()
     .withMessage('邮箱格式不正确')
@@ -86,11 +88,4 @@ const validateEmail = [
   
   handleValidationErrors
 ];
-
-module.exports = {
-  validateRegister,
-  validateLogin,
-  validateRefreshToken,
-  validateEmail
-};
 

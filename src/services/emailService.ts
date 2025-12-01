@@ -1,8 +1,6 @@
-const nodemailer = require('nodemailer');
-const fs = require('fs');
-const path = require('path');
-const config = require('../config');
-const logger = require('../utils/logger');
+import nodemailer from 'nodemailer';
+import config from '../config';
+import logger from '../utils/logger';
 
 /**
  * 邮件服务
@@ -15,12 +13,12 @@ const transporter = nodemailer.createTransport(config.email.smtp);
 /**
  * 验证邮件配置
  */
-async function verifyEmailConfig() {
+export async function verifyEmailConfig(): Promise<boolean> {
   try {
     await transporter.verify();
     logger.success('邮件服务配置正确');
     return true;
-  } catch (error) {
+  } catch (error: any) {
     logger.warn('邮件服务配置验证失败:', error.message);
     logger.warn('邮件功能可能无法正常工作，请检查 SMTP 配置');
     return false;
@@ -29,11 +27,11 @@ async function verifyEmailConfig() {
 
 /**
  * 生成验证邮件 HTML 内容
- * @param {string} username - 用户名
- * @param {string} verificationUrl - 验证链接
- * @returns {string} HTML 内容
+ * @param username - 用户名
+ * @param verificationUrl - 验证链接
+ * @returns HTML 内容
  */
-function generateVerificationEmailHTML(username, verificationUrl) {
+function generateVerificationEmailHTML(username: string, verificationUrl: string): string {
   return `
 <!DOCTYPE html>
 <html>
@@ -136,11 +134,15 @@ function generateVerificationEmailHTML(username, verificationUrl) {
 
 /**
  * 发送验证邮件
- * @param {string} email - 收件人邮箱
- * @param {string} username - 用户名
- * @param {string} verificationToken - 验证令牌
+ * @param email - 收件人邮箱
+ * @param username - 用户名
+ * @param verificationToken - 验证令牌
  */
-async function sendVerificationEmail(email, username, verificationToken) {
+export async function sendVerificationEmail(
+  email: string,
+  username: string,
+  verificationToken: string
+): Promise<{ success: boolean; messageId: string }> {
   try {
     const verificationUrl = `${config.email.verifyUrlBase}/api/auth/verify?token=${verificationToken}`;
     
@@ -155,14 +157,9 @@ async function sendVerificationEmail(email, username, verificationToken) {
     logger.success(`验证邮件已发送至: ${email} (MessageID: ${info.messageId})`);
     
     return { success: true, messageId: info.messageId };
-  } catch (error) {
+  } catch (error: any) {
     logger.error('发送验证邮件失败:', error.message);
     throw new Error('邮件发送失败，请稍后重试');
   }
 }
-
-module.exports = {
-  verifyEmailConfig,
-  sendVerificationEmail
-};
 

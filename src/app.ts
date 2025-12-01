@@ -1,17 +1,17 @@
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
-const swaggerUi = require('swagger-ui-express');
-const swaggerSpecs = require('./config/swagger');
-const config = require('./config');
-const routes = require('./routes');
-const { errorHandler, notFoundHandler } = require('./middlewares/errorHandler');
-const { verifyEmailConfig } = require('./services/emailService');
-const logger = require('./utils/logger');
+import 'dotenv/config';
+import express, { Request, Response, Application } from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import swaggerUi from 'swagger-ui-express';
+import logger from './utils/logger';
+import swaggerSpecs from './config/swagger';
+import config from './config';
+import routes from './routes';
+import { errorHandler, notFoundHandler } from './middlewares/errorHandler';
+import { verifyEmailConfig } from './services/emailService';
 
-const app = express();
+const app: Application = express();
 
 /**
  * ========================================
@@ -32,7 +32,7 @@ app.use(helmet({
 }));
 
 // CORS - 跨域资源共享
-const corsOptions = {
+const corsOptions: cors.CorsOptions = {
   origin: function (origin, callback) {
     // 允许无 origin 的请求（如 Postman、服务端请求）
     if (!origin) return callback(null, true);
@@ -123,7 +123,7 @@ app.use(express.urlencoded({ extended: true }));
  * ========================================
  */
 
-app.use((req, res, next) => {
+app.use((req: Request, res: Response, next) => {
   const start = Date.now();
   res.on('finish', () => {
     const duration = Date.now() - start;
@@ -192,7 +192,7 @@ app.use('/api', routes);
  *                   example: http://localhost:3000/api-docs
  */
 if (config.server.env !== 'production') {
-  app.get('/', (req, res) => {
+  app.get('/', (req: Request, res: Response) => {
     res.json({
       success: true,
       message: '欢迎使用 AuthCore 统一认证中心',
@@ -214,7 +214,7 @@ if (config.server.env !== 'production') {
 
 /**
  * ========================================
- * 6. 错误处理
+ * 7. 错误处理
  * ========================================
  */
 
@@ -226,11 +226,11 @@ app.use(errorHandler);
 
 /**
  * ========================================
- * 7. 启动服务器
+ * 8. 启动服务器
  * ========================================
  */
 
-async function startServer() {
+async function startServer(): Promise<void> {
   try {
     // 连接数据库
     await config.connectDB();
@@ -259,7 +259,7 @@ async function startServer() {
     });
     
   } catch (error) {
-    logger.error('服务器启动失败:', error.message);
+    logger.error('服务器启动失败:', (error as Error).message);
     process.exit(1);
   }
 }
@@ -269,5 +269,5 @@ if (require.main === module) {
   startServer();
 }
 
-module.exports = app;
+export default app;
 

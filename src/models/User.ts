@@ -1,12 +1,46 @@
-const mongoose = require('mongoose');
-const bcrypt = require('bcrypt');
+import mongoose, { Document, Model, Schema } from 'mongoose';
+import bcrypt from 'bcrypt';
 
 /**
  * 用户模型
  * 支持邮箱和用户名双登录方式
  * 包含邮箱验证功能
  */
-const userSchema = new mongoose.Schema({
+
+// Refresh Token 接口
+interface IRefreshToken {
+  token: string;
+  createdAt: Date;
+  expiresAt: Date;
+}
+
+// 用户文档接口
+export interface IUser extends Document {
+  email: string;
+  username: string;
+  passwordHash: string;
+  isVerified: boolean;
+  verificationToken?: string;
+  verificationTokenExpires?: Date;
+  refreshTokens: IRefreshToken[];
+  profile: Map<string, string>;
+  createdAt: Date;
+  updatedAt: Date;
+  
+  // 实例方法
+  comparePassword(password: string): Promise<boolean>;
+  addRefreshToken(token: string, expiresAt: Date): void;
+  removeRefreshToken(token: string): void;
+  cleanExpiredTokens(): void;
+}
+
+// 用户模型接口（包含静态方法）
+interface IUserModel extends Model<IUser> {
+  createUser(userData: { email: string; username: string; password: string }): Promise<IUser>;
+  findByAccount(account: string): Promise<IUser | null>;
+}
+
+const userSchema = new Schema<IUser, IUserModel>({
   // 邮箱（登录凭证 1）
   email: {
     type: String,
@@ -71,7 +105,7 @@ const userSchema = new mongoose.Schema({
   profile: {
     type: Map,
     of: String,
-    default: {}
+    default: new Map()
   }
 }, {
   timestamps: true // 自动添加 createdAt 和 updatedAt
@@ -84,44 +118,46 @@ userSchema.index({ verificationToken: 1 }, { sparse: true });
 
 /**
  * 实例方法：验证密码
- * @param {string} password - 明文密码
- * @returns {Promise<boolean>}
+ * @param password - 明文密码
+ * @returns 是否匹配
  */
-userSchema.methods.comparePassword = async function(password) {
+userSchema.methods.comparePassword = async function(password: string): Promise<boolean> {
   return await bcrypt.compare(password, this.passwordHash);
 };
 
 /**
  * 实例方法：添加 Refresh Token
- * @param {string} token - Refresh Token
- * @param {Date} expiresAt - 过期时间
+ * @param token - Refresh Token
+ * @param expiresAt - 过期时间
  */
-userSchema.methods.addRefreshToken = function(token, expiresAt) {
-  this.refreshTokens.push({ token, expiresAt });
+userSchema.methods.addRefreshToken = function(token: string, expiresAt: Date): void {
+  this.refreshTokens.push({ token, expiresAt, createdAt: new Date() });
 };
 
 /**
  * 实例方法：移除 Refresh Token
- * @param {string} token - 要移除的 Refresh Token
+ * @param token - 要移除的 Refresh Token
  */
-userSchema.methods.removeRefreshToken = function(token) {
-  this.refreshTokens = this.refreshTokens.filter(rt => rt.token !== token);
+userSchema.methods.removeRefreshToken = function(token: string): void {
+  this.refreshTokens = this.refreshTokens.filter((rt: IRefreshToken) => rt.token !== token);
 };
 
 /**
  * 实例方法：清理过期的 Refresh Tokens
  */
-userSchema.methods.cleanExpiredTokens = function() {
+userSchema.methods.cleanExpiredTokens = function(): void {
   const now = new Date();
-  this.refreshTokens = this.refreshTokens.filter(rt => rt.expiresAt > now);
+  this.refreshTokens = this.refreshTokens.filter((rt: IRefreshToken) => rt.expiresAt > now);
 };
 
 /**
  * 静态方法：创建用户（自动加密密码）
- * @param {Object} userData - 用户数据
- * @returns {Promise<User>}
+ * @param userData - 用户数据
+ * @returns 用户实例
  */
-userSchema.statics.createUser = async function(userData) {
+userSchema.statics.createUser = async function(
+  userData: { email: string; username: string; password: string }
+): Promise<IUser> {
   const { email, username, password } = userData;
   
   // 加密密码
@@ -140,10 +176,10 @@ userSchema.statics.createUser = async function(userData) {
 
 /**
  * 静态方法：根据账号查找用户（支持邮箱或用户名）
- * @param {string} account - 邮箱或用户名
- * @returns {Promise<User|null>}
+ * @param account - 邮箱或用户名
+ * @returns 用户实例或 null
  */
-userSchema.statics.findByAccount = async function(account) {
+userSchema.statics.findByAccount = async function(account: string): Promise<IUser | null> {
   return await this.findOne({
     $or: [
       { email: account.toLowerCase() },
@@ -153,7 +189,7 @@ userSchema.statics.findByAccount = async function(account) {
 };
 
 // 导出模型
-const User = mongoose.model('User', userSchema);
+const User = mongoose.model<IUser, IUserModel>('User', userSchema);
 
-module.exports = User;
+export default User;
 

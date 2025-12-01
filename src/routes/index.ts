@@ -1,6 +1,7 @@
-const express = require('express');
-const router = express.Router();
-const authRoutes = require('./auth');
+import express, { Request, Response, Router } from 'express';
+import authRoutes from './auth';
+
+const router: Router = express.Router();
 
 /**
  * 路由汇总
@@ -38,7 +39,7 @@ router.use('/auth', authRoutes);
  *                   type: string
  *                   example: development
  */
-router.get('/health', (req, res) => {
+router.get('/health', (req: Request, res: Response) => {
   res.json({
     success: true,
     message: 'AuthCore 认证中心运行正常',
@@ -47,5 +48,5 @@ router.get('/health', (req, res) => {
   });
 });
 
-module.exports = router;
+export default router;
 

@@ -138,3 +138,7 @@ test-results/
 *.draft.md
 NOTES.md
 TODO.local.md
+
+dist/
+*.js.map
+*.d.ts

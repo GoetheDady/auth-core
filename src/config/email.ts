@@ -4,11 +4,30 @@
  * 可配置主流邮件服务提供商（Gmail、SendGrid、阿里云、腾讯云等）
  */
 
-module.exports = {
+export interface EmailConfig {
+  smtp: {
+    host: string;
+    port: number;
+    secure: boolean;
+    auth: {
+      user: string;
+      pass: string;
+    };
+  };
+  from: string;
+  verifyUrlBase: string;
+  templates: {
+    verification: {
+      subject: string;
+    };
+  };
+}
+
+const emailConfig: EmailConfig = {
   // SMTP 服务器配置
   smtp: {
     host: process.env.SMTP_HOST || 'localhost',
-    port: parseInt(process.env.SMTP_PORT) || 1025,
+    port: parseInt(process.env.SMTP_PORT || '1025'),
     secure: process.env.SMTP_SECURE === 'true', // true for 465, false for other ports
     auth: {
       user: process.env.SMTP_USER || '',
@@ -30,4 +49,6 @@ module.exports = {
     }
   }
 };
+
+export default emailConfig;
 

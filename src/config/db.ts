@@ -1,12 +1,12 @@
-const mongoose = require('mongoose');
-const logger = require('../utils/logger');
+import mongoose from 'mongoose';
+import logger from '../utils/logger';
 
 /**
  * 连接 MongoDB 数据库
  */
-async function connectDB() {
+export async function connectDB(): Promise<void> {
   try {
-    // 如果已经连接，先关闭之前的连接
+    // 如果已经连接,先关闭之前的连接
     if (mongoose.connection.readyState !== 0) {
       logger.warn('检测到已有 MongoDB 连接，正在关闭...');
       await mongoose.connection.close();
@@ -37,10 +37,6 @@ async function connectDB() {
     logger.info(`预期数据库名称: ${dbNameFromURI}`);
     
     await mongoose.connect(mongoURI, {
-      // 使用新的 URL 解析器
-      useNewUrlParser: true,
-      // 使用新的服务器发现和监控引擎
-      useUnifiedTopology: true,
       // 认证相关配置
       authSource: 'admin',
       // 连接超时设置
@@ -50,7 +46,7 @@ async function connectDB() {
     });
     
     // 获取实际连接的数据库名称
-    const actualDbName = mongoose.connection.db.databaseName;
+    const actualDbName = mongoose.connection.db?.databaseName || 'unknown';
     logger.success(`MongoDB 连接成功！数据库: ${actualDbName}`);
     
     // 验证数据库名称是否匹配
@@ -76,10 +72,8 @@ async function connectDB() {
     });
     
   } catch (error) {
-    logger.error('MongoDB 连接失败:', error.message);
+    logger.error('MongoDB 连接失败:', (error as Error).message);
     process.exit(1);
   }
 }
-
-module.exports = { connectDB };
 
