@@ -1,0 +1,140 @@
+# ==========================================
+# AuthCore 项目 - Git 忽略配置
+# ==========================================
+
+# ============ 依赖 ============
+node_modules/
+package-lock.json
+yarn.lock
+# 保留 pnpm-lock.yaml 用于版本锁定
+# pnpm-lock.yaml
+
+# pnpm 存储目录（内容可寻址存储，体积大，不应提交）
+.pnpm-store/
+.pnpm-debug.log
+
+# ============ 环境变量 ============
+# 所有环境变量文件（包含敏感信息）
+.env
+.env.*
+
+# 但保留示例配置文件
+!.env.example
+
+# ============ 安全密钥 ============
+# RSA 私钥（绝对不能提交）
+keys/private.key
+keys/*.key
+keys/*.pem
+*.key
+*.pem
+
+# 但保留公钥（业务系统需要）
+!keys/public.key
+
+# ============ 日志文件 ============
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ============ 运行时文件 ============
+# PM2
+.pm2/
+ecosystem.config.js
+
+# PID 文件
+*.pid
+*.seed
+*.pid.lock
+
+# ============ 数据库 ============
+# 本地数据库文件
+*.db
+*.sqlite
+*.sqlite3
+data/
+dump/
+
+# MongoDB 导出文件
+*.bson
+
+# ============ 构建产物 ============
+dist/
+build/
+out/
+coverage/
+.nyc_output/
+
+# ============ 操作系统 ============
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+.directory
+
+# ============ IDE & 编辑器 ============
+# VSCode
+.vscode/
+*.code-workspace
+
+# JetBrains
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Vim
+*.swp
+*.swo
+*.swn
+*~
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# ============ 临时文件 ============
+tmp/
+temp/
+*.tmp
+*.temp
+*.cache
+
+# ============ 测试相关 ============
+# 测试覆盖率
+coverage/
+.nyc_output/
+
+# 测试临时文件
+test-results/
+*.test.local.*
+
+# ============ 其他 ============
+# 备份文件
+*.bak
+*.backup
+*.old
+
+# 压缩文件
+*.zip
+*.tar.gz
+*.rar
+
+# 文档草稿
+*.draft.md
+NOTES.md
+TODO.local.md

@@ -1,0 +1,4 @@
+# RSA 密钥对将存储在此目录
+# private.key - 私钥（已加入 .gitignore）
+# public.key - 公钥
+
