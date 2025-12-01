@@ -76,9 +76,10 @@ const options: swaggerJsdoc.Options = {
             },
             password: {
               type: 'string',
-              minLength: 8,
-              example: 'Password123',
-              description: '密码（至少8个字符，必须包含字母和数字）'
+              minLength: 10,
+              maxLength: 128,
+              example: 'MyP@ssw0rd2024',
+              description: '密码（10-128个字符，必须包含大写字母、小写字母、数字和特殊字符）'
             }
           }
         },
