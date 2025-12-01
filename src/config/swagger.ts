@@ -25,10 +25,6 @@ const options: swaggerJsdoc.Options = {
         description: '开发环境'
       },
       {
-        url: 'http://localhost:3001',
-        description: '测试环境'
-      },
-      {
         url: 'https://auth.gdsw.tech',
         description: '生产环境'
       }
