@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer';
 import config from '../config';
 import logger from '../utils/logger';
+import { ErrorFactory } from '../utils/AppError';
 
 /**
  * 邮件服务
@@ -159,7 +160,7 @@ export async function sendVerificationEmail(
     return { success: true, messageId: info.messageId };
   } catch (error: any) {
     logger.error('发送验证邮件失败:', error.message);
-    throw new Error('邮件发送失败，请稍后重试');
+    throw ErrorFactory.emailSendFailed('邮件发送失败，请稍后重试');
   }
 }
 

@@ -4,12 +4,16 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import swaggerUi from 'swagger-ui-express';
-import logger from './utils/logger';
+import logger, { LogLevel } from './utils/logger';
 import swaggerSpecs from './config/swagger';
 import config from './config';
 import routes from './routes';
-import { errorHandler, notFoundHandler } from './middlewares/errorHandler';
+import { errorHandler, notFoundHandler, setupUncaughtExceptionHandlers } from './middlewares/errorHandler';
+import { requestIdMiddleware } from './middlewares/requestId';
 import { verifyEmailConfig } from './services/emailService';
+
+// 设置未捕获异常处理
+setupUncaughtExceptionHandlers();
 
 const app: Application = express();
 
@@ -110,7 +114,16 @@ app.use('/api/auth/resend-verification', resendLimiter);
 
 /**
  * ========================================
- * 3. 请求解析中间件
+ * 3. 请求 ID 追踪
+ * ========================================
+ */
+
+// 为每个请求生成唯一 ID
+app.use(requestIdMiddleware);
+
+/**
+ * ========================================
+ * 4. 请求解析中间件
  * ========================================
  */
 
@@ -119,22 +132,48 @@ app.use(express.urlencoded({ extended: true }));
 
 /**
  * ========================================
- * 4. 日志中间件
+ * 5. 增强的日志中间件
  * ========================================
  */
 
 app.use((req: Request, res: Response, next) => {
   const start = Date.now();
+  
+  // 记录请求开始
+  logger.logStructured(LogLevel.DEBUG, {
+    type: 'request_start',
+    requestId: req.id,
+    method: req.method,
+    path: req.path,
+    query: req.query,
+    ip: req.ip,
+    userAgent: req.headers['user-agent']
+  });
+  
+  // 监听响应完成
   res.on('finish', () => {
     const duration = Date.now() - start;
-    logger.info(`${req.method} ${req.path} - ${res.statusCode} - ${duration}ms`);
+    const logLevel = res.statusCode >= 500 ? LogLevel.ERROR :
+                     res.statusCode >= 400 ? LogLevel.WARN :
+                     LogLevel.INFO;
+    
+    logger.logStructured(logLevel, {
+      type: 'request_complete',
+      requestId: req.id,
+      method: req.method,
+      path: req.path,
+      statusCode: res.statusCode,
+      duration: `${duration}ms`,
+      ip: req.ip
+    });
   });
+  
   next();
 });
 
 /**
  * ========================================
- * 5. Swagger API 文档
+ * 6. Swagger API 文档
  * ========================================
  */
 
@@ -153,7 +192,7 @@ if (config.server.env !== 'production') {
 
 /**
  * ========================================
- * 6. 路由
+ * 7. 路由
  * ========================================
  */
 
@@ -214,7 +253,7 @@ if (config.server.env !== 'production') {
 
 /**
  * ========================================
- * 7. 错误处理
+ * 8. 错误处理
  * ========================================
  */
 
@@ -226,7 +265,7 @@ app.use(errorHandler);
 
 /**
  * ========================================
- * 8. 启动服务器
+ * 9. 启动服务器
  * ========================================
  */
 
@@ -242,19 +281,19 @@ async function startServer(): Promise<void> {
     const PORT = config.server.port;
     app.listen(PORT, () => {
       logger.success(`
-╔══════════════════════════════════════════════════════════╗
-║                                                          ║
-║         🔐 AuthCore 认证中心已启动                        ║
-║                                                          ║
-║         环境: ${config.server.env.padEnd(45)}║
-║         端口: ${PORT.toString().padEnd(45)}║
-║         地址: http://localhost:${PORT.toString().padEnd(33)}║
-║                                                          ║
-║         📖 API 文档: http://localhost:${PORT}/              ║
-║         ❤️  健康检查: http://localhost:${PORT}/api/health    ║
-║         🔑 公钥获取: http://localhost:${PORT}/api/auth/public-key ║
-║                                                          ║
-╚══════════════════════════════════════════════════════════╝
+╔═════════════════════════════════════════════════════════════════════╗
+║                                                                     ║
+║         🔐 AuthCore 认证中心已启动                                     ║
+║                                                                     ║
+║         环境: ${config.server.env.padEnd(45)}                        ║
+║         端口: ${PORT.toString().padEnd(45)}                          ║
+║         地址: http://localhost:${PORT.toString().padEnd(33)}         ║
+║                                                                     ║
+║         📖 API 文档: http://localhost:${PORT}/api-docs               ║
+║         ❤️  健康检查: http://localhost:${PORT}/api/health            ║
+║         🔑 公钥获取: http://localhost:${PORT}/api/auth/public-key    ║
+║                                                                     ║
+╚═════════════════════════════════════════════════════════════════════╝
       `);
     });
     

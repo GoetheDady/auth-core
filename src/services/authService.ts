@@ -2,6 +2,7 @@ import User from '../models/User';
 import * as tokenService from './tokenService';
 import * as emailService from './emailService';
 import logger from '../utils/logger';
+import { ErrorFactory } from '../utils/AppError';
 
 /**
  * 认证服务
@@ -64,13 +65,13 @@ export async function register(userData: RegisterData): Promise<RegisterResult> 
     // 1. 检查邮箱是否已存在
     const existingEmail = await User.findOne({ email: email.toLowerCase() });
     if (existingEmail) {
-      throw new Error('该邮箱已被注册');
+      throw ErrorFactory.emailAlreadyExists(email);
     }
     
     // 2. 检查用户名是否已存在
     const existingUsername = await User.findOne({ username });
     if (existingUsername) {
-      throw new Error('该用户名已被使用');
+      throw ErrorFactory.usernameAlreadyExists(username);
     }
     
     // 3. 创建用户
@@ -119,7 +120,7 @@ export async function verifyEmail(token: string): Promise<VerifyEmailResult> {
     });
     
     if (!user) {
-      throw new Error('验证令牌无效或已过期');
+      throw ErrorFactory.verificationTokenExpired();
     }
     
     // 标记为已验证
@@ -154,11 +155,11 @@ export async function resendVerificationEmail(email: string): Promise<{ success:
     const user = await User.findOne({ email: email.toLowerCase() });
     
     if (!user) {
-      throw new Error('该邮箱未注册');
+      throw ErrorFactory.userNotFound('该邮箱未注册');
     }
     
     if (user.isVerified) {
-      throw new Error('该邮箱已经验证过了');
+      throw ErrorFactory.badRequest('该邮箱已经验证过了');
     }
     
     // 生成新的验证令牌
@@ -196,18 +197,18 @@ export async function login(account: string, password: string): Promise<LoginRes
     // 1. 查找用户
     const user = await User.findByAccount(account);
     if (!user) {
-      throw new Error('账号或密码错误');
+      throw ErrorFactory.invalidCredentials();
     }
     
     // 2. 检查邮箱是否已验证
     if (!user.isVerified) {
-      throw new Error('请先验证邮箱后再登录');
+      throw ErrorFactory.emailNotVerified();
     }
     
     // 3. 验证密码
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
-      throw new Error('账号或密码错误');
+      throw ErrorFactory.invalidCredentials();
     }
     
     // 4. 清理过期的 Refresh Token
@@ -254,7 +255,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<RefreshT
     });
     
     if (!user) {
-      throw new Error('Refresh Token 无效');
+      throw ErrorFactory.refreshTokenInvalid();
     }
     
     // 2. 检查 Refresh Token 是否过期
@@ -265,7 +266,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<RefreshT
         user.removeRefreshToken(refreshToken);
         await user.save();
       }
-      throw new Error('Refresh Token 已过期，请重新登录');
+      throw ErrorFactory.refreshTokenInvalid('Refresh Token 已过期，请重新登录');
     }
     
     // 3. 生成新的 Access Token
