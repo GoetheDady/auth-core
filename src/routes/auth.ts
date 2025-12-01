@@ -260,7 +260,14 @@ router.post('/resend-verification', validateEmail, async (req: Request, res: Res
 router.post('/login', validateLogin, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { account, password } = req.body;
-    const result = await authService.login(account, password);
+    
+    // 获取设备信息和 IP 地址
+    const deviceInfo = {
+      userAgent: req.headers['user-agent'],
+      ipAddress: req.ip || req.socket.remoteAddress
+    };
+    
+    const result = await authService.login(account, password, deviceInfo);
     res.json(result);
   } catch (error) {
     next(error);
@@ -297,7 +304,14 @@ router.post('/login', validateLogin, async (req: Request, res: Response, next: N
 router.post('/refresh', validateRefreshToken, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { refreshToken } = req.body;
-    const result = await authService.refreshAccessToken(refreshToken);
+    
+    // 获取设备信息和 IP 地址（用于异常检测）
+    const deviceInfo = {
+      userAgent: req.headers['user-agent'],
+      ipAddress: req.ip || req.socket.remoteAddress
+    };
+    
+    const result = await authService.refreshAccessToken(refreshToken, deviceInfo);
     res.json(result);
   } catch (error) {
     next(error);

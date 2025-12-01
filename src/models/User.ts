@@ -7,11 +7,15 @@ import bcrypt from 'bcrypt';
  * 包含邮箱验证功能
  */
 
-// Refresh Token 接口
+// Refresh Token 接口（增强安全性）
 interface IRefreshToken {
-  token: string;
-  createdAt: Date;
-  expiresAt: Date;
+  tokenHash: string;        // Token 的 SHA-256 哈希值（安全存储）
+  createdAt: Date;          // 创建时间
+  expiresAt: Date;          // 过期时间
+  lastUsedAt?: Date;        // 最后使用时间
+  deviceInfo?: string;      // 设备信息（User-Agent）
+  ipAddress?: string;       // IP 地址
+  isRevoked?: boolean;      // 是否已撤销
 }
 
 // 用户文档接口
@@ -29,9 +33,12 @@ export interface IUser extends Document {
   
   // 实例方法
   comparePassword(password: string): Promise<boolean>;
-  addRefreshToken(token: string, expiresAt: Date): void;
-  removeRefreshToken(token: string): void;
+  addRefreshToken(tokenHash: string, expiresAt: Date, deviceInfo?: string, ipAddress?: string): void;
+  removeRefreshToken(tokenHash: string): void;
+  findRefreshToken(tokenHash: string): IRefreshToken | undefined;
+  updateRefreshTokenUsage(tokenHash: string): void;
   cleanExpiredTokens(): void;
+  limitActiveTokens(maxTokens: number): void;
 }
 
 // 用户模型接口（包含静态方法）
@@ -85,11 +92,12 @@ const userSchema = new Schema<IUser, IUserModel>({
     type: Date
   },
   
-  // Refresh Token 列表（支持多设备登录）
+  // Refresh Token 列表（支持多设备登录，增强安全性）
   refreshTokens: [{
-    token: {
+    tokenHash: {
       type: String,
-      required: true
+      required: true,
+      index: true  // 索引以提高查询性能
     },
     createdAt: {
       type: Date,
@@ -98,6 +106,19 @@ const userSchema = new Schema<IUser, IUserModel>({
     expiresAt: {
       type: Date,
       required: true
+    },
+    lastUsedAt: {
+      type: Date
+    },
+    deviceInfo: {
+      type: String
+    },
+    ipAddress: {
+      type: String
+    },
+    isRevoked: {
+      type: Boolean,
+      default: false
     }
   }],
   
@@ -126,20 +147,58 @@ userSchema.methods.comparePassword = async function(password: string): Promise<b
 };
 
 /**
- * 实例方法：添加 Refresh Token
- * @param token - Refresh Token
+ * 实例方法：添加 Refresh Token（哈希存储）
+ * @param tokenHash - Refresh Token 的哈希值
  * @param expiresAt - 过期时间
+ * @param deviceInfo - 设备信息（User-Agent）
+ * @param ipAddress - IP 地址
+ * 
+ * 安全说明：
+ * - 只存储 token 的哈希值，不存储原始 token
+ * - 记录设备信息和 IP，用于异常检测
  */
-userSchema.methods.addRefreshToken = function(token: string, expiresAt: Date): void {
-  this.refreshTokens.push({ token, expiresAt, createdAt: new Date() });
+userSchema.methods.addRefreshToken = function(
+  tokenHash: string, 
+  expiresAt: Date, 
+  deviceInfo?: string, 
+  ipAddress?: string
+): void {
+  this.refreshTokens.push({ 
+    tokenHash, 
+    expiresAt, 
+    createdAt: new Date(),
+    deviceInfo,
+    ipAddress,
+    isRevoked: false
+  });
 };
 
 /**
  * 实例方法：移除 Refresh Token
- * @param token - 要移除的 Refresh Token
+ * @param tokenHash - 要移除的 Token 哈希值
  */
-userSchema.methods.removeRefreshToken = function(token: string): void {
-  this.refreshTokens = this.refreshTokens.filter((rt: IRefreshToken) => rt.token !== token);
+userSchema.methods.removeRefreshToken = function(tokenHash: string): void {
+  this.refreshTokens = this.refreshTokens.filter((rt: IRefreshToken) => rt.tokenHash !== tokenHash);
+};
+
+/**
+ * 实例方法：查找 Refresh Token
+ * @param tokenHash - Token 哈希值
+ * @returns Token 对象或 undefined
+ */
+userSchema.methods.findRefreshToken = function(tokenHash: string): IRefreshToken | undefined {
+  return this.refreshTokens.find((rt: IRefreshToken) => rt.tokenHash === tokenHash);
+};
+
+/**
+ * 实例方法：更新 Token 使用时间
+ * @param tokenHash - Token 哈希值
+ */
+userSchema.methods.updateRefreshTokenUsage = function(tokenHash: string): void {
+  const token = this.refreshTokens.find((rt: IRefreshToken) => rt.tokenHash === tokenHash);
+  if (token) {
+    token.lastUsedAt = new Date();
+  }
 };
 
 /**
@@ -147,7 +206,28 @@ userSchema.methods.removeRefreshToken = function(token: string): void {
  */
 userSchema.methods.cleanExpiredTokens = function(): void {
   const now = new Date();
-  this.refreshTokens = this.refreshTokens.filter((rt: IRefreshToken) => rt.expiresAt > now);
+  this.refreshTokens = this.refreshTokens.filter((rt: IRefreshToken) => 
+    rt.expiresAt > now && !rt.isRevoked
+  );
+};
+
+/**
+ * 实例方法：限制活跃 Token 数量
+ * @param maxTokens - 最大允许的 Token 数量
+ * 
+ * 安全说明：
+ * - 防止 Token 无限累积
+ * - 当超过限制时，删除最旧的 Token
+ * - 默认建议 5 个设备
+ */
+userSchema.methods.limitActiveTokens = function(maxTokens: number = 5): void {
+  if (this.refreshTokens.length > maxTokens) {
+    // 按创建时间排序，保留最新的 maxTokens 个
+    this.refreshTokens.sort((a: IRefreshToken, b: IRefreshToken) => 
+      b.createdAt.getTime() - a.createdAt.getTime()
+    );
+    this.refreshTokens = this.refreshTokens.slice(0, maxTokens);
+  }
 };
 
 /**

@@ -1,12 +1,18 @@
 import jwt from 'jsonwebtoken';
 // @ts-ignore
 import { v4 as uuidv4 } from 'uuid';
+import crypto from 'crypto';
 import config from '../config';
 import logger from '../utils/logger';
 
 /**
  * Token 服务
  * 负责 JWT Token 的生成、验证和管理
+ * 
+ * 安全增强：
+ * - Refresh Token 使用 SHA-256 哈希存储
+ * - 支持 Token 轮换机制
+ * - 记录设备指纹和 IP 地址
  */
 
 interface UserPayload {
@@ -52,10 +58,40 @@ export function generateAccessToken(user: UserDocument): string {
 
 /**
  * 生成 Refresh Token
- * @returns Refresh Token (UUID v4)
+ * @returns Refresh Token (UUID v4 格式，128位随机字符串)
+ * 
+ * 安全说明：
+ * - 使用 crypto.randomBytes 生成高强度随机 token
+ * - 64 字节 = 128 个十六进制字符
+ * - 比 UUID 更安全，熵更高
  */
 export function generateRefreshToken(): string {
-  return uuidv4();
+  return crypto.randomBytes(64).toString('hex');
+}
+
+/**
+ * 对 Refresh Token 进行哈希
+ * @param token - 原始 Refresh Token
+ * @returns SHA-256 哈希值
+ * 
+ * 安全说明：
+ * - 使用 SHA-256 单向哈希算法
+ * - 数据库只存储哈希值，不存储原始 token
+ * - 即使数据库泄露，攻击者也无法获得原始 token
+ */
+export function hashRefreshToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+/**
+ * 验证 Refresh Token
+ * @param token - 用户提供的原始 token
+ * @param tokenHash - 数据库中存储的哈希值
+ * @returns 是否匹配
+ */
+export function verifyRefreshToken(token: string, tokenHash: string): boolean {
+  const inputHash = hashRefreshToken(token);
+  return inputHash === tokenHash;
 }
 
 /**

@@ -7,7 +7,19 @@ import { ErrorFactory } from '../utils/AppError';
 /**
  * 认证服务
  * 处理用户注册、登录、验证等业务逻辑
+ * 
+ * 安全增强：
+ * - Refresh Token 使用哈希存储
+ * - 实现 Token 轮换机制
+ * - 记录设备指纹和 IP 地址
+ * - 异常登录检测
  */
+
+// 设备信息接口
+interface DeviceInfo {
+  userAgent?: string;
+  ipAddress?: string;
+}
 
 interface RegisterData {
   email: string;
@@ -45,6 +57,7 @@ interface LoginResult {
 interface RefreshTokenResult {
   success: boolean;
   accessToken: string;
+  refreshToken: string;  // 新的 Refresh Token（轮换机制）
   expiresIn: number;
 }
 
@@ -265,14 +278,21 @@ export async function resendVerificationEmail(email: string): Promise<{ success:
  * 用户登录
  * @param account - 账号（邮箱或用户名）
  * @param password - 密码
+ * @param deviceInfo - 设备信息（User-Agent 和 IP）
  * @returns 登录结果
  * 
  * 安全说明：
  * - 为防止用户枚举攻击，所有认证失败都返回统一错误消息
  * - 邮箱未验证也返回统一错误，不泄露用户是否存在
  * - 使用恒定时间比较，防止时序攻击
+ * - Refresh Token 使用哈希存储，增强安全性
+ * - 记录设备信息和 IP，用于异常检测
  */
-export async function login(account: string, password: string): Promise<LoginResult> {
+export async function login(
+  account: string, 
+  password: string, 
+  deviceInfo?: DeviceInfo
+): Promise<LoginResult> {
   try {
     // 1. 查找用户
     const user = await User.findByAccount(account);
@@ -303,21 +323,30 @@ export async function login(account: string, password: string): Promise<LoginRes
     // 5. 清理过期的 Refresh Token
     user.cleanExpiredTokens();
     
-    // 6. 生成 Access Token 和 Refresh Token
+    // 6. 限制活跃 Token 数量（最多 5 个设备）
+    user.limitActiveTokens(5);
+    
+    // 7. 生成 Access Token 和 Refresh Token
     const accessToken = tokenService.generateAccessToken(user);
     const refreshToken = tokenService.generateRefreshToken();
+    const refreshTokenHash = tokenService.hashRefreshToken(refreshToken);
     const refreshTokenExpiry = tokenService.getRefreshTokenExpiry();
     
-    // 7. 保存 Refresh Token
-    user.addRefreshToken(refreshToken, refreshTokenExpiry);
+    // 8. 保存 Refresh Token（哈希存储）
+    user.addRefreshToken(
+      refreshTokenHash,
+      refreshTokenExpiry,
+      deviceInfo?.userAgent,
+      deviceInfo?.ipAddress
+    );
     await user.save();
     
-    logger.success(`用户登录成功: ${user.username} (${user.email})`);
+    logger.success(`用户登录成功: ${user.username} (${user.email}) [IP: ${deviceInfo?.ipAddress || 'unknown'}]`);
     
     return {
       success: true,
       accessToken,
-      refreshToken,
+      refreshToken,  // 返回原始 token 给客户端
       expiresIn: 900, // 15 分钟 = 900 秒
       user: {
         id: user._id,
@@ -336,40 +365,99 @@ export async function login(account: string, password: string): Promise<LoginRes
 }
 
 /**
- * 刷新 Access Token
- * @param refreshToken - Refresh Token
- * @returns 刷新结果
+ * 刷新 Access Token（实现 Token 轮换机制）
+ * @param refreshToken - 原始 Refresh Token
+ * @param deviceInfo - 设备信息（用于异常检测）
+ * @returns 刷新结果（包含新的 Access Token 和新的 Refresh Token）
+ * 
+ * 安全增强：
+ * - Token 轮换：每次刷新后旧 token 立即失效
+ * - 异常检测：检查 IP 和设备变化
+ * - 哈希验证：使用哈希比对而非明文比对
+ * - 防重放：旧 token 一旦使用即撤销
  */
-export async function refreshAccessToken(refreshToken: string): Promise<RefreshTokenResult> {
+export async function refreshAccessToken(
+  refreshToken: string,
+  deviceInfo?: DeviceInfo
+): Promise<RefreshTokenResult> {
   try {
-    // 1. 查找包含此 Refresh Token 的用户
+    // 1. 计算 token 的哈希值
+    const tokenHash = tokenService.hashRefreshToken(refreshToken);
+    
+    // 2. 查找包含此 token 哈希的用户
     const user = await User.findOne({
-      'refreshTokens.token': refreshToken
+      'refreshTokens.tokenHash': tokenHash
     });
     
     if (!user) {
+      logger.warn(`刷新失败: Token 不存在或已被撤销 [IP: ${deviceInfo?.ipAddress || 'unknown'}]`);
       throw ErrorFactory.refreshTokenInvalid();
     }
     
-    // 2. 检查 Refresh Token 是否过期
-    const tokenData = user.refreshTokens.find(rt => rt.token === refreshToken);
-    if (!tokenData || tokenData.expiresAt < new Date()) {
-      // 移除过期的 token
-      if (tokenData) {
-        user.removeRefreshToken(refreshToken);
-        await user.save();
-      }
+    // 3. 查找具体的 token 记录
+    const tokenData = user.findRefreshToken(tokenHash);
+    
+    if (!tokenData) {
+      logger.warn(`刷新失败: Token 数据异常 (${user.username})`);
+      throw ErrorFactory.refreshTokenInvalid();
+    }
+    
+    // 4. 检查是否已撤销
+    if (tokenData.isRevoked) {
+      logger.warn(`刷新失败: Token 已被撤销 (${user.username}) [IP: ${deviceInfo?.ipAddress}]`);
+      throw ErrorFactory.refreshTokenInvalid('Refresh Token 已失效，请重新登录');
+    }
+    
+    // 5. 检查是否过期
+    if (tokenData.expiresAt < new Date()) {
+      logger.info(`刷新失败: Token 已过期 (${user.username})`);
+      user.removeRefreshToken(tokenHash);
+      await user.save();
       throw ErrorFactory.refreshTokenInvalid('Refresh Token 已过期，请重新登录');
     }
     
-    // 3. 生成新的 Access Token
-    const accessToken = tokenService.generateAccessToken(user);
+    // 6. 异常检测：检查 IP 变化（可选的额外安全措施）
+    if (tokenData.ipAddress && deviceInfo?.ipAddress) {
+      if (tokenData.ipAddress !== deviceInfo.ipAddress) {
+        logger.warn(
+          `IP 地址变化检测: ${user.username} | ` +
+          `原IP: ${tokenData.ipAddress} -> 新IP: ${deviceInfo.ipAddress}`
+        );
+        // 注意：IP 变化是正常现象（移动网络、VPN等），不应阻止刷新
+        // 但应该记录日志用于安全审计
+      }
+    }
     
-    logger.success(`Access Token 刷新成功: ${user.username}`);
+    // 7. Token 轮换：移除旧 token
+    user.removeRefreshToken(tokenHash);
+    
+    // 8. 生成新的 Access Token 和 Refresh Token
+    const newAccessToken = tokenService.generateAccessToken(user);
+    const newRefreshToken = tokenService.generateRefreshToken();
+    const newRefreshTokenHash = tokenService.hashRefreshToken(newRefreshToken);
+    const newRefreshTokenExpiry = tokenService.getRefreshTokenExpiry();
+    
+    // 9. 保存新的 Refresh Token
+    user.addRefreshToken(
+      newRefreshTokenHash,
+      newRefreshTokenExpiry,
+      deviceInfo?.userAgent || tokenData.deviceInfo,
+      deviceInfo?.ipAddress || tokenData.ipAddress
+    );
+    
+    // 10. 清理过期 token
+    user.cleanExpiredTokens();
+    
+    await user.save();
+    
+    logger.success(
+      `Token 刷新成功 (轮换): ${user.username} [IP: ${deviceInfo?.ipAddress || tokenData.ipAddress}]`
+    );
     
     return {
       success: true,
-      accessToken,
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken,  // 返回新的 refresh token（轮换）
       expiresIn: 900
     };
   } catch (error: any) {
@@ -383,14 +471,19 @@ export async function refreshAccessToken(refreshToken: string): Promise<RefreshT
  * @param refreshToken - Refresh Token（可选）
  * @param userId - 用户 ID（可选）
  * @returns 登出结果
+ * 
+ * 安全说明：
+ * - 使用哈希值查找和删除 token
+ * - 支持单设备登出和全部设备登出
  */
 export async function logout(refreshToken?: string, userId?: string): Promise<LogoutResult> {
   try {
     if (refreshToken) {
-      // 移除指定的 Refresh Token
-      const user = await User.findOne({ 'refreshTokens.token': refreshToken });
+      // 移除指定的 Refresh Token（使用哈希查找）
+      const tokenHash = tokenService.hashRefreshToken(refreshToken);
+      const user = await User.findOne({ 'refreshTokens.tokenHash': tokenHash });
       if (user) {
-        user.removeRefreshToken(refreshToken);
+        user.removeRefreshToken(tokenHash);
         await user.save();
         logger.success(`用户登出成功: ${user.username}`);
       }

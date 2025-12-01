@@ -190,6 +190,11 @@ const options: swaggerJsdoc.Options = {
               example: 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...',
               description: '新的 Access Token'
             },
+            refreshToken: {
+              type: 'string',
+              example: 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6...',
+              description: '新的 Refresh Token（Token 轮换机制：旧 token 已失效）'
+            },
             expiresIn: {
               type: 'number',
               example: 900,
