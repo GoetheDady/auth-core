@@ -138,15 +138,18 @@ app.use((req, res, next) => {
  * ========================================
  */
 
-// Swagger UI 配置
-const swaggerOptions = {
-  customCss: '.swagger-ui .topbar { display: none }',
-  customSiteTitle: 'AuthCore API 文档',
-  customfavIcon: '/favicon.ico'
-};
+// Swagger 文档路由（仅非生产环境）
+if (config.server.env !== 'production') {
+  // Swagger UI 配置
+  const swaggerOptions = {
+    customCss: '.swagger-ui .topbar { display: none }',
+    customSiteTitle: 'AuthCore API 文档',
+    customfavIcon: '/favicon.ico'
+  };
 
-// Swagger 文档路由
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, swaggerOptions));
+  // Swagger 文档路由
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, swaggerOptions));
+}
 
 /**
  * ========================================
@@ -158,6 +161,7 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, swaggerOptio
 app.use('/api', routes);
 
 /**
+ * 根路由（仅非生产环境）
  * @swagger
  * /:
  *   get:
@@ -187,24 +191,26 @@ app.use('/api', routes);
  *                   type: string
  *                   example: http://localhost:3000/api-docs
  */
-app.get('/', (req, res) => {
-  res.json({
-    success: true,
-    message: '欢迎使用 AuthCore 统一认证中心',
-    version: '1.0.0',
-    endpoints: {
-      health: '/api/health',
-      register: 'POST /api/auth/register',
-      login: 'POST /api/auth/login',
-      verify: 'GET /api/auth/verify?token=xxx',
-      resendVerification: 'POST /api/auth/resend-verification',
-      refresh: 'POST /api/auth/refresh',
-      logout: 'POST /api/auth/logout',
-      publicKey: 'GET /api/auth/public-key'
-    },
-    documentation: `${req.protocol}://${req.get('host')}/api-docs`
+if (config.server.env !== 'production') {
+  app.get('/', (req, res) => {
+    res.json({
+      success: true,
+      message: '欢迎使用 AuthCore 统一认证中心',
+      version: '1.0.0',
+      endpoints: {
+        health: '/api/health',
+        register: 'POST /api/auth/register',
+        login: 'POST /api/auth/login',
+        verify: 'GET /api/auth/verify?token=xxx',
+        resendVerification: 'POST /api/auth/resend-verification',
+        refresh: 'POST /api/auth/refresh',
+        logout: 'POST /api/auth/logout',
+        publicKey: 'GET /api/auth/public-key'
+      },
+      documentation: `${req.protocol}://${req.get('host')}/api-docs`
+    });
   });
-});
+}
 
 /**
  * ========================================
