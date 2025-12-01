@@ -99,7 +99,10 @@ router.get('/verify', async (req: Request, res: Response, next: NextFunction) =>
         </head>
         <body>
           <h1 class="error">❌ 验证失败</h1>
-          <p>验证令牌缺失</p>
+          <p>验证链接无效或已过期</p>
+          <p style="margin-top: 20px; font-size: 14px; color: #666;">
+            如果您需要重新发送验证邮件，请联系客服或使用"重新发送验证邮件"功能
+          </p>
         </body>
         </html>
       `);
@@ -146,6 +149,9 @@ router.get('/verify', async (req: Request, res: Response, next: NextFunction) =>
       </html>
     `);
   } catch (error: any) {
+    // 安全处理：不暴露详细错误信息，防止信息泄露
+    const safeMessage = '验证链接无效或已过期';
+    
     res.status(400).send(`
       <!DOCTYPE html>
       <html>
@@ -159,7 +165,10 @@ router.get('/verify', async (req: Request, res: Response, next: NextFunction) =>
       </head>
       <body>
         <h1 class="error">❌ 验证失败</h1>
-        <p>${error.message}</p>
+        <p>${safeMessage}</p>
+        <p style="margin-top: 20px; font-size: 14px; color: #666;">
+          如果您需要重新发送验证邮件，请使用"重新发送验证邮件"功能
+        </p>
       </body>
       </html>
     `);

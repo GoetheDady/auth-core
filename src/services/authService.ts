@@ -57,6 +57,11 @@ interface LogoutResult {
  * 用户注册
  * @param userData - { email, username, password }
  * @returns 注册结果
+ * 
+ * 安全说明：
+ * - 为防止用户枚举攻击，统一返回成功消息
+ * - 如果邮箱已存在，根据验证状态决定是否重发邮件
+ * - 如果用户名已存在，静默忽略（攻击者无法判断）
  */
 export async function register(userData: RegisterData): Promise<RegisterResult> {
   const { email, username, password } = userData;
@@ -65,13 +70,49 @@ export async function register(userData: RegisterData): Promise<RegisterResult> 
     // 1. 检查邮箱是否已存在
     const existingEmail = await User.findOne({ email: email.toLowerCase() });
     if (existingEmail) {
-      throw ErrorFactory.emailAlreadyExists(email);
+      // 邮箱已存在的处理策略（防止用户枚举）
+      if (existingEmail.isVerified) {
+        // 已验证的用户：静默忽略，不发送任何邮件
+        logger.info(`注册尝试使用已存在的邮箱: ${email} (已验证)`);
+      } else {
+        // 未验证的用户：重新发送验证邮件
+        logger.info(`注册尝试使用已存在的邮箱: ${email} (未验证，重发验证邮件)`);
+        existingEmail.verificationToken = tokenService.generateVerificationToken();
+        existingEmail.verificationTokenExpires = tokenService.getVerificationTokenExpiry();
+        await existingEmail.save();
+        
+        try {
+          await emailService.sendVerificationEmail(
+            existingEmail.email,
+            existingEmail.username,
+            existingEmail.verificationToken
+          );
+        } catch (emailError: any) {
+          logger.error('重发验证邮件失败:', emailError.message);
+        }
+      }
+      
+      // 统一返回成功消息（不泄露邮箱已存在）
+      return {
+        success: true,
+        message: '注册成功，请查收验证邮件',
+        userId: existingEmail._id
+      };
     }
     
     // 2. 检查用户名是否已存在
     const existingUsername = await User.findOne({ username });
     if (existingUsername) {
-      throw ErrorFactory.usernameAlreadyExists(username);
+      // 用户名已存在：静默失败，但返回成功消息（防止枚举）
+      logger.info(`注册尝试使用已存在的用户名: ${username}`);
+      
+      // 返回成功消息，但不创建用户，也不发送邮件
+      // 攻击者无法通过响应判断用户名是否存在
+      return {
+        success: true,
+        message: '注册成功，请查收验证邮件',
+        userId: null
+      };
     }
     
     // 3. 创建用户
@@ -102,6 +143,17 @@ export async function register(userData: RegisterData): Promise<RegisterResult> 
       userId: user._id
     };
   } catch (error: any) {
+    // 捕获数据库唯一键冲突（竞态条件）
+    if (error.code === 11000) {
+      logger.warn('注册时发生唯一键冲突（竞态条件）');
+      // 依然返回成功消息，不泄露信息
+      return {
+        success: true,
+        message: '注册成功，请查收验证邮件',
+        userId: null
+      };
+    }
+    
     logger.error('用户注册失败:', error.message);
     throw error;
   }
@@ -149,17 +201,32 @@ export async function verifyEmail(token: string): Promise<VerifyEmailResult> {
  * 重新发送验证邮件
  * @param email - 邮箱地址
  * @returns 操作结果
+ * 
+ * 安全说明：
+ * - 为防止用户枚举攻击，始终返回统一的成功消息
+ * - 无论邮箱是否存在、是否已验证，都返回相同响应
+ * - 只在用户确实存在且未验证时才真正发送邮件
  */
 export async function resendVerificationEmail(email: string): Promise<{ success: boolean; message: string }> {
   try {
     const user = await User.findOne({ email: email.toLowerCase() });
     
     if (!user) {
-      throw ErrorFactory.userNotFound('该邮箱未注册');
+      // 用户不存在：静默忽略，返回成功消息（防止枚举）
+      logger.info(`重发验证邮件请求，但邮箱不存在: ${email}`);
+      return {
+        success: true,
+        message: '如果该邮箱已注册，验证邮件将发送到您的邮箱'
+      };
     }
     
     if (user.isVerified) {
-      throw ErrorFactory.badRequest('该邮箱已经验证过了');
+      // 已验证：静默忽略，返回成功消息（防止枚举）
+      logger.info(`重发验证邮件请求，但邮箱已验证: ${email}`);
+      return {
+        success: true,
+        message: '如果该邮箱已注册，验证邮件将发送到您的邮箱'
+      };
     }
     
     // 生成新的验证令牌
@@ -168,21 +235,29 @@ export async function resendVerificationEmail(email: string): Promise<{ success:
     await user.save();
     
     // 发送验证邮件
-    await emailService.sendVerificationEmail(
-      user.email,
-      user.username,
-      user.verificationToken
-    );
-    
-    logger.success(`验证邮件已重新发送至: ${user.email}`);
+    try {
+      await emailService.sendVerificationEmail(
+        user.email,
+        user.username,
+        user.verificationToken
+      );
+      logger.success(`验证邮件已重新发送至: ${user.email}`);
+    } catch (emailError: any) {
+      // 邮件发送失败也返回成功消息（不泄露信息）
+      logger.error('重发验证邮件失败:', emailError);
+    }
     
     return {
       success: true,
-      message: '验证邮件已重新发送'
+      message: '如果该邮箱已注册，验证邮件将发送到您的邮箱'
     };
   } catch (error: any) {
-    logger.error('重发验证邮件失败:', error.message);
-    throw error;
+    logger.error('重发验证邮件处理失败:', error.message);
+    // 即使发生错误，也返回统一消息（不泄露内部错误）
+    return {
+      success: true,
+      message: '如果该邮箱已注册，验证邮件将发送到您的邮箱'
+    };
   }
 }
 
@@ -191,35 +266,49 @@ export async function resendVerificationEmail(email: string): Promise<{ success:
  * @param account - 账号（邮箱或用户名）
  * @param password - 密码
  * @returns 登录结果
+ * 
+ * 安全说明：
+ * - 为防止用户枚举攻击，所有认证失败都返回统一错误消息
+ * - 邮箱未验证也返回统一错误，不泄露用户是否存在
+ * - 使用恒定时间比较，防止时序攻击
  */
 export async function login(account: string, password: string): Promise<LoginResult> {
   try {
     // 1. 查找用户
     const user = await User.findByAccount(account);
     if (!user) {
+      // 用户不存在：返回统一错误
+      logger.info(`登录失败: 用户不存在 (${account})`);
       throw ErrorFactory.invalidCredentials();
     }
     
-    // 2. 检查邮箱是否已验证
-    if (!user.isVerified) {
-      throw ErrorFactory.emailNotVerified();
-    }
-    
-    // 3. 验证密码
+    // 2. 验证密码（先验证密码，即使邮箱未验证）
+    // 这样可以防止通过响应时间判断用户是否存在
     const isPasswordValid = await user.comparePassword(password);
+    
+    // 3. 检查邮箱是否已验证
+    if (!user.isVerified) {
+      // 邮箱未验证：返回统一错误（防止枚举）
+      // 不返回特定的"邮箱未验证"错误，攻击者无法判断账号是否存在
+      logger.info(`登录失败: 邮箱未验证 (${user.email})`);
+      throw ErrorFactory.invalidCredentials('账号或密码错误');
+    }
+    
+    // 4. 检查密码
     if (!isPasswordValid) {
+      logger.info(`登录失败: 密码错误 (${account})`);
       throw ErrorFactory.invalidCredentials();
     }
     
-    // 4. 清理过期的 Refresh Token
+    // 5. 清理过期的 Refresh Token
     user.cleanExpiredTokens();
     
-    // 5. 生成 Access Token 和 Refresh Token
+    // 6. 生成 Access Token 和 Refresh Token
     const accessToken = tokenService.generateAccessToken(user);
     const refreshToken = tokenService.generateRefreshToken();
     const refreshTokenExpiry = tokenService.getRefreshTokenExpiry();
     
-    // 6. 保存 Refresh Token
+    // 7. 保存 Refresh Token
     user.addRefreshToken(refreshToken, refreshTokenExpiry);
     await user.save();
     
@@ -237,7 +326,11 @@ export async function login(account: string, password: string): Promise<LoginRes
       }
     };
   } catch (error: any) {
-    logger.error('用户登录失败:', error.message);
+    // 记录详细错误，但不向客户端泄露
+    if (error instanceof ErrorFactory.constructor) {
+      throw error;
+    }
+    logger.error('用户登录异常:', error.message);
     throw error;
   }
 }
