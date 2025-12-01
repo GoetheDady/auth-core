@@ -29,7 +29,7 @@ const options = {
         description: '测试环境'
       },
       {
-        url: 'https://auth.your-domain.com',
+        url: 'https://auth.gdsw.tech',
         description: '生产环境'
       }
     ],
