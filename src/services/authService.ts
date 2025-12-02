@@ -122,18 +122,44 @@ export async function register(userData: RegisterData): Promise<RegisterResult> 
     user.verificationTokenExpires = tokenService.getVerificationTokenExpiry();
     await user.save();
     
-    // 5. 发送验证邮件
-    try {
-      await emailService.sendVerificationEmail(
-        user.email,
-        user.username,
-        user.verificationToken
-      );
-    } catch (emailError: any) {
-      logger.error('发送验证邮件失败，但用户已创建:', emailError.message);
-      // 即使邮件发送失败，也不影响注册成功
+    // 5. 发送验证邮件（关键步骤：如果失败则回滚用户创建）
+    // 实现重试机制：最多尝试 3 次
+    let emailSent = false;
+    let lastEmailError: any = null;
+    const maxRetries = 3;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        if (attempt > 1) {
+          logger.info(`第 ${attempt} 次尝试发送验证邮件: ${email}`);
+          // 重试前等待一小段时间（指数退避）
+          await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+        }
+        
+        await emailService.sendVerificationEmail(
+          user.email,
+          user.username,
+          user.verificationToken
+        );
+        
+        emailSent = true;
+        if (attempt > 1) {
+          logger.success(`第 ${attempt} 次重试成功，验证邮件已发送: ${email}`);
+        }
+        break; // 发送成功，跳出循环
+      } catch (emailError: any) {
+        lastEmailError = emailError;
+        logger.warn(`第 ${attempt} 次发送验证邮件失败: ${emailError.message}`);
+        
+        if (attempt < maxRetries) {
+          logger.info(`将在 ${attempt} 秒后重试...`);
+        }
+      }
     }
     
+    // 检查邮件是否发送成功
+    if (emailSent) {
+    // 邮件发送成功
     logger.success(`用户注册成功: ${user.username} (${user.email})`);
     
     return {
@@ -141,6 +167,54 @@ export async function register(userData: RegisterData): Promise<RegisterResult> 
       message: '注册成功，请查收验证邮件',
       userId: user._id
     };
+  } else {
+    // 所有重试都失败了，必须回滚用户创建
+    // 原因：用户无法验证邮箱就无法登录，创建了也没用
+    logger.error(`验证邮件发送失败（已重试 ${maxRetries} 次），开始回滚用户创建`);
+    logger.error(`  - 用户名: ${user.username}`);
+    logger.error(`  - 邮箱: ${email}`);
+    logger.error(`  - 最后错误: ${lastEmailError?.message || 'Unknown'}`);
+    
+    const emailError = lastEmailError;
+      
+      try {
+        // 删除刚创建的用户（回滚操作）
+        await User.findByIdAndDelete(user._id);
+        logger.info(`✓ 回滚成功：已删除用户 (ID: ${user._id}, 用户名: ${username}, 邮箱: ${email})`);
+      } catch (deleteError: any) {
+        // 删除失败是严重问题，需要人工介入
+        logger.error(`✗ 严重错误：回滚失败，无法删除用户！`);
+        logger.error(`  - 用户 ID: ${user._id}`);
+        logger.error(`  - 用户名: ${username}`);
+        logger.error(`  - 邮箱: ${email}`);
+        logger.error(`  - 删除错误: ${deleteError.message}`);
+        logger.error(`  ⚠️ 需要手动清理数据库中的孤立用户记录`);
+        
+        // 抛出严重错误，提示需要管理员处理
+        throw ErrorFactory.internalError(
+          '注册过程出现严重错误，用户数据可能不一致，请联系管理员'
+        );
+      }
+      
+      // 判断邮件错误类型，返回更具体的提示
+      let errorMessage = '注册失败：无法发送验证邮件';
+      
+      // 根据错误类型提供不同的提示
+      if (emailError.message && emailError.message.includes('ENOTFOUND')) {
+        errorMessage = '注册失败：邮件服务器连接失败，请稍后重试';
+      } else if (emailError.message && emailError.message.includes('Invalid email')) {
+        errorMessage = '注册失败：邮箱地址格式不正确，请检查后重试';
+      } else if (emailError.message && emailError.message.includes('ECONNREFUSED')) {
+        errorMessage = '注册失败：邮件服务暂时不可用，请稍后重试';
+      } else if (emailError.message && emailError.message.includes('Timeout')) {
+        errorMessage = '注册失败：邮件发送超时，请稍后重试';
+      } else {
+        errorMessage = '注册失败：无法发送验证邮件，请检查邮箱地址或稍后重试';
+      }
+    
+    // 抛出友好的错误消息
+    throw ErrorFactory.emailSendFailed(errorMessage);
+  }
   } catch (error: any) {
     // 捕获数据库唯一键冲突（竞态条件）
     if (error.code === 11000) {
