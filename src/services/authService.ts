@@ -72,9 +72,17 @@ interface LogoutResult {
  * @returns 注册结果
  * 
  * 安全说明：
- * - 为防止用户枚举攻击，统一返回成功消息
- * - 如果邮箱已存在，根据验证状态决定是否重发邮件
- * - 如果用户名已存在，静默忽略（攻击者无法判断）
+ * - 邮箱或用户名已存在时，返回 409 错误
+ * - 使用模糊表述（"可能已被使用"），防止精确的用户枚举
+ * - 立即反馈错误，用户可以马上重试其他邮箱/用户名
+ * 
+ * 竞态条件处理：
+ * - 高并发场景下，两个请求可能同时通过存在性检查
+ * - MongoDB 的唯一索引会拒绝第二个写入（抛出 11000 错误）
+ * - catch 块会捕获此错误并返回相应的冲突错误：
+ *   1. 邮箱冲突：返回 409，提示邮箱可能已被使用
+ *   2. 用户名冲突：返回 409，提示用户名可能已被使用
+ * - 确保用户能够立即知道失败原因并重试
  */
 export async function register(userData: RegisterData): Promise<RegisterResult> {
   const { email, username, password } = userData;
@@ -83,49 +91,27 @@ export async function register(userData: RegisterData): Promise<RegisterResult> 
     // 1. 检查邮箱是否已存在
     const existingEmail = await User.findOne({ email: email.toLowerCase() });
     if (existingEmail) {
-      // 邮箱已存在的处理策略（防止用户枚举）
-      if (existingEmail.isVerified) {
-        // 已验证的用户：静默忽略，不发送任何邮件
-        logger.info(`注册尝试使用已存在的邮箱: ${email} (已验证)`);
-      } else {
-        // 未验证的用户：重新发送验证邮件
-        logger.info(`注册尝试使用已存在的邮箱: ${email} (未验证，重发验证邮件)`);
-        existingEmail.verificationToken = tokenService.generateVerificationToken();
-        existingEmail.verificationTokenExpires = tokenService.getVerificationTokenExpiry();
-        await existingEmail.save();
-        
-        try {
-          await emailService.sendVerificationEmail(
-            existingEmail.email,
-            existingEmail.username,
-            existingEmail.verificationToken
-          );
-        } catch (emailError: any) {
-          logger.error('重发验证邮件失败:', emailError.message);
-        }
-      }
+      // 邮箱已存在：直接返回错误
+      logger.info(`注册失败: 邮箱已存在 (${email}) | 已验证: ${existingEmail.isVerified}`);
       
-      // 统一返回成功消息（不泄露邮箱已存在）
-      return {
-        success: true,
-        message: '注册成功，请查收验证邮件',
-        userId: existingEmail._id
-      };
+      // 直接返回错误，明确告知但使用模糊表述
+      throw ErrorFactory.conflict(
+        '注册未成功，该邮箱可能已被使用或已注册过账户',
+        { field: 'email' }
+      );
     }
     
     // 2. 检查用户名是否已存在
     const existingUsername = await User.findOne({ username });
     if (existingUsername) {
-      // 用户名已存在：静默失败，但返回成功消息（防止枚举）
-      logger.info(`注册尝试使用已存在的用户名: ${username}`);
+      // 用户名已存在：直接返回错误，使用模糊表述
+      logger.info(`注册失败: 用户名已存在 (${username}) | 邮箱: ${email}`);
       
-      // 返回成功消息，但不创建用户，也不发送邮件
-      // 攻击者无法通过响应判断用户名是否存在
-      return {
-        success: true,
-        message: '注册成功，请查收验证邮件',
-        userId: null
-      };
+      // 直接返回错误，明确告知但使用模糊表述
+      throw ErrorFactory.conflict(
+        '注册未成功，该用户名可能已被使用，请尝试其他用户名',
+        { field: 'username' }
+      );
     }
     
     // 3. 创建用户
@@ -158,13 +144,39 @@ export async function register(userData: RegisterData): Promise<RegisterResult> 
   } catch (error: any) {
     // 捕获数据库唯一键冲突（竞态条件）
     if (error.code === 11000) {
-      logger.warn('注册时发生唯一键冲突（竞态条件）');
-      // 依然返回成功消息，不泄露信息
-      return {
-        success: true,
-        message: '注册成功，请查收验证邮件',
-        userId: null
-      };
+      // 识别冲突的字段
+      const conflictField = error.keyPattern ? Object.keys(error.keyPattern)[0] : 'unknown';
+      const conflictValue = error.keyValue ? error.keyValue[conflictField] : 'unknown';
+      
+      logger.warn(
+        `注册时发生唯一键冲突（竞态条件）| 字段: ${conflictField} | 值: ${conflictValue}`
+      );
+      
+      // 处理邮箱冲突：直接返回错误
+      if (conflictField === 'email') {
+        logger.info(`竞态条件: 邮箱冲突 (${email})`);
+        
+        // 直接返回错误，明确告知但使用模糊表述
+        throw ErrorFactory.conflict(
+          '注册未成功，该邮箱可能已被使用或已注册过账户',
+          { field: 'email' }
+        );
+      }
+      
+      // 处理用户名冲突：直接返回错误
+      if (conflictField === 'username') {
+        logger.info(`竞态条件: 用户名冲突 (${username}) | 邮箱: ${email}`);
+        
+        // 直接返回错误，明确告知但使用模糊表述
+        throw ErrorFactory.conflict(
+          '注册未成功，该用户名可能已被使用，请尝试其他用户名',
+          { field: 'username' }
+        );
+      }
+      
+      // 其他未知冲突：返回通用错误
+      logger.error(`未知的唯一键冲突: 字段=${conflictField}, 值=${conflictValue}`);
+      throw ErrorFactory.conflict('注册失败，请检查您的信息后重试');
     }
     
     logger.error('用户注册失败:', error.message);

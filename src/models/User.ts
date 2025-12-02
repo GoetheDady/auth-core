@@ -132,10 +132,13 @@ const userSchema = new Schema<IUser, IUserModel>({
   timestamps: true // 自动添加 createdAt 和 updatedAt
 });
 
-// 索引
+// 索引（防止重复和优化查询性能）
+// unique: true 确保唯一性，防止重复数据
+// sparse: true 允许多个文档该字段为 null
 userSchema.index({ email: 1 }, { unique: true });
 userSchema.index({ username: 1 }, { unique: true });
 userSchema.index({ verificationToken: 1 }, { sparse: true });
+userSchema.index({ 'refreshTokens.tokenHash': 1 });  // 优化 refresh token 查询
 
 /**
  * 实例方法：验证密码
@@ -234,23 +237,29 @@ userSchema.methods.limitActiveTokens = function(maxTokens: number = 5): void {
  * 静态方法：创建用户（自动加密密码）
  * @param userData - 用户数据
  * @returns 用户实例
+ * 
+ * 注意：
+ * - 如果邮箱或用户名已存在，会抛出 MongoError (code: 11000)
+ * - 调用方需要处理唯一键冲突异常
+ * - 密码使用 bcrypt 加密（saltRounds: 10）
  */
 userSchema.statics.createUser = async function(
   userData: { email: string; username: string; password: string }
 ): Promise<IUser> {
   const { email, username, password } = userData;
   
-  // 加密密码
+  // 加密密码（bcrypt 自带盐值生成）
   const saltRounds = 10;
   const passwordHash = await bcrypt.hash(password, saltRounds);
   
-  // 创建用户
+  // 创建用户文档
   const user = new this({
-    email,
+    email: email.toLowerCase(),  // 确保邮箱小写
     username,
     passwordHash
   });
   
+  // 保存到数据库（可能抛出 11000 唯一键冲突错误）
   return await user.save();
 };
 
