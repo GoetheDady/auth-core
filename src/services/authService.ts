@@ -136,18 +136,18 @@ export async function register(userData: RegisterData): Promise<RegisterResult> 
           await new Promise(resolve => setTimeout(resolve, attempt * 1000));
         }
         
-        await emailService.sendVerificationEmail(
-          user.email,
-          user.username,
-          user.verificationToken
-        );
+      await emailService.sendVerificationEmail(
+        user.email,
+        user.username,
+        user.verificationToken
+      );
         
         emailSent = true;
         if (attempt > 1) {
           logger.success(`第 ${attempt} 次重试成功，验证邮件已发送: ${email}`);
         }
         break; // 发送成功，跳出循环
-      } catch (emailError: any) {
+    } catch (emailError: any) {
         lastEmailError = emailError;
         logger.warn(`第 ${attempt} 次发送验证邮件失败: ${emailError.message}`);
         
@@ -335,12 +335,12 @@ export async function resendVerificationEmail(email: string): Promise<{ success:
     
     // 发送验证邮件
     try {
-      await emailService.sendVerificationEmail(
-        user.email,
-        user.username,
-        user.verificationToken
-      );
-      logger.success(`验证邮件已重新发送至: ${user.email}`);
+    await emailService.sendVerificationEmail(
+      user.email,
+      user.username,
+      user.verificationToken
+    );
+    logger.success(`验证邮件已重新发送至: ${user.email}`);
     } catch (emailError: any) {
       // 邮件发送失败也返回成功消息（不泄露信息）
       logger.error('重发验证邮件失败:', emailError);
@@ -394,10 +394,9 @@ export async function login(
     
     // 3. 检查邮箱是否已验证
     if (!user.isVerified) {
-      // 邮箱未验证：返回统一错误（防止枚举）
-      // 不返回特定的"邮箱未验证"错误，攻击者无法判断账号是否存在
+      // 邮箱未验证：返回明确提示，引导用户验证邮箱
       logger.info(`登录失败: 邮箱未验证 (${user.email})`);
-      throw ErrorFactory.invalidCredentials('账号或密码错误');
+      throw ErrorFactory.emailNotVerified('请先验证您的邮箱后再登录');
     }
     
     // 4. 检查密码
@@ -498,7 +497,7 @@ export async function refreshAccessToken(
     if (tokenData.expiresAt < new Date()) {
       logger.info(`刷新失败: Token 已过期 (${user.username})`);
       user.removeRefreshToken(tokenHash);
-      await user.save();
+        await user.save();
       throw ErrorFactory.refreshTokenInvalid('Refresh Token 已过期，请重新登录');
     }
     
